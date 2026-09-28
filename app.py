@@ -255,17 +255,35 @@ elif page == "📈 Plaintext vs FHE":
         "FHE Latency and Confidence Interval"
     )
 
+    latency_table = master[
+        [
+            "dataset",
+            "model",
+            "latency_s",
+            "latency_std_s",
+            "ci_low_s",
+            "ci_high_s"
+        ]
+    ].copy()
+
+    latency_table = latency_table.rename(
+        columns={
+            "dataset": "Dataset",
+            "model": "Model",
+            "latency_s": "FHE Latency (s)",
+            "latency_std_s": "Std. Dev. (s)",
+            "ci_low_s": "95% CI Lower (s)",
+            "ci_high_s": "95% CI Upper (s)",
+        }
+    )
+
     st.dataframe(
-        master[
-            [
-                "dataset",
-                "model",
-                "latency_s",
-                "latency_std_s",
-                "ci_low_s",
-                "ci_high_s"
-            ]
-        ].style.format("{:.4f}"),
+        latency_table.style.format({
+            "FHE Latency (s)": "{:.4f}",
+            "Std. Dev. (s)": "{:.4f}",
+            "95% CI Lower (s)": "{:.4f}",
+            "95% CI Upper (s)": "{:.4f}",
+        }),
         use_container_width=True,
         hide_index=True
     )
