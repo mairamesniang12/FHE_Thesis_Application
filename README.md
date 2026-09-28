@@ -1,4 +1,4 @@
-# FHE Thesis Application — V3
+# FHE Thesis Application 
 
 Application Streamlit construite à partir du notebook `source_notebook.ipynb`.
 
