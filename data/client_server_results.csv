@@ -1,0 +1,9 @@
+stage,time_s,scope,size_kb
+Model packaging,0.023,one-time,
+Client key generation,5.473,one-time,75586.9
+Client encryption,0.0126,per-query,
+Server FHE inference,3.8466,per-query,
+Client decryption,0.0035,per-query,
+Total no network,3.8628,per-query,
+Network roundtrip,7.4973266,two-process demo,
+Total end-to-end,7.51388335,two-process demo,
