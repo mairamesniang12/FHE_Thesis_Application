@@ -192,13 +192,13 @@ results interactively.
 ### 1. Clone the repository
 
 ```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
+git clone <https://github.com/mairamesniang12/FHE_Thesis_Application/tree/master>
 ```
 
 Then enter the project directory:
 
 ```bash
-cd <YOUR_REPOSITORY_NAME>
+cd <FHE_Thesis_Application>
 ```
 
 ### 2. Install the required dependencies
