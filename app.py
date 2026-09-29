@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 from pathlib import Path
 
 
@@ -24,37 +23,80 @@ DATA = ROOT / "data"
 
 
 # ============================================================
-# LOAD DATA
+# DATA LOADING
 # ============================================================
 
 @st.cache_data
-def load_csv(filename):
-    path = DATA / filename
+def load(name):
+    path = DATA / name
 
     if not path.exists():
-        st.error(f"Required data file not found: {path}")
+        st.error(f"Required file not found: {path}")
         st.stop()
 
     return pd.read_csv(path)
 
 
 # Main experimental results
-master = load_csv("master_results.csv")
+master = load("master_results_latest.csv")
+
+# Raw FHE results
+fhe = load("df_fhe.csv")
 
 # Sensitivity experiments
-depth = load_csv("depth_results.csv")
-trees = load_csv("ntrees_results.csv")
-bits = load_csv("bits_results.csv")
+depth = load("depth_results.csv")
+trees = load("ntrees_results.csv")
+bits = load("bits_results.csv")
 
-# Additional experiments
-dp = load_csv("dp_simulation_results.csv")
-neural = load_csv("neural_preprocessing_results.csv")
-mlp = load_csv("mlp_fhe_results.csv")
-deploy = load_csv("client_server_results.csv")
+# Other experiments
+dp = load("dp_simulation_results.csv")
+neural = load("neural_preprocessing_results.csv")
+mlp = load("mlp_fhe_results.csv")
+deploy = load("client_server_results.csv")
 
 
 # ============================================================
-# BASIC VALIDATION
+# HELPER FUNCTIONS
+# ============================================================
+
+def pct(x):
+    if pd.isna(x):
+        return "N/A"
+    return f"{x * 100:.2f}%"
+
+
+def safe_mean(series):
+    if series.empty:
+        return None
+
+    numeric = pd.to_numeric(series, errors="coerce").dropna()
+
+    if numeric.empty:
+        return None
+
+    return numeric.mean()
+
+
+def format_dataframe(df, formats):
+    """
+    Apply formatting only to columns that actually exist.
+    This prevents Streamlit/Pandas formatting errors.
+    """
+
+    valid_formats = {
+        col: fmt
+        for col, fmt in formats.items()
+        if col in df.columns
+    }
+
+    if not valid_formats:
+        return df
+
+    return df.style.format(valid_formats)
+
+
+# ============================================================
+# VERIFY MAIN DATA
 # ============================================================
 
 required_master_columns = [
@@ -73,19 +115,31 @@ required_master_columns = [
     "latency_ci95_high_s",
     "memory_peak_rss_mb",
     "delta_acc_fhe_minus_plain",
-    "overhead_ratio"
+    "overhead_ratio",
 ]
 
-missing_columns = [
+
+missing_master = [
     col for col in required_master_columns
     if col not in master.columns
 ]
 
-if missing_columns:
+
+if missing_master:
+
     st.error(
-        "The following columns are missing from master_results.csv:\n\n"
-        + "\n".join(f"- {c}" for c in missing_columns)
+        "The file `master_results_latest.csv` is missing the following "
+        "required columns:"
     )
+
+    for col in missing_master:
+        st.write(f"- `{col}`")
+
+    st.info(
+        "Please make sure that `data/master_results_latest.csv` is the "
+        "CSV generated from the corrected thesis notebook."
+    )
+
     st.stop()
 
 
@@ -99,20 +153,18 @@ page = st.sidebar.radio(
     "Navigation",
     [
         "🏠 Home",
-        "📊 Experimental Dashboard",
+        "📊 Dashboard",
         "📈 Plaintext vs FHE",
         "🔬 Sensitivity Analysis",
-        "🖥️ Client–Server Deployment",
+        "🖥️ Client–Server",
         "🧠 Neural Preprocessing",
-        "🔒 FHE + Differential Privacy",
-        "📚 Methodology"
+        "🔒 FHE + DP",
+        "📚 Methodology",
     ]
 )
 
-st.sidebar.divider()
-
 st.sidebar.caption(
-    "Experimental results extracted from the corrected thesis notebook."
+    "Experimental results extracted from the thesis notebook"
 )
 
 st.sidebar.caption(
@@ -121,182 +173,161 @@ st.sidebar.caption(
 
 
 # ============================================================
-# HELPERS
-# ============================================================
-
-def pct(x):
-    if pd.isna(x):
-        return "N/A"
-    return f"{x * 100:.2f}%"
-
-
-def safe_mean(series):
-    if series.empty:
-        return np.nan
-    return series.mean()
-
-
-# ============================================================
 # HOME
 # ============================================================
 
 if page == "🏠 Home":
 
-    st.title("🔐 Privacy-Preserving Machine Learning with FHE")
+    st.title("🔐 FHE Privacy-Preserving Machine Learning")
 
     st.subheader(
-        "Interactive thesis experimental demonstrator"
+        "Interactive MSc Thesis Experimental Demonstrator"
     )
 
     st.write(
         """
-        This application presents the experimental results recorded in
-        the thesis notebook. It provides an interactive view of the
-        plaintext baselines, Fully Homomorphic Encryption (FHE)
-        experiments, sensitivity analyses, client–server deployment,
-        neural preprocessing, and illustrative Differential Privacy
-        experiments.
+        This application presents the experimental results obtained
+        from the thesis notebook on privacy-preserving machine learning
+        using Fully Homomorphic Encryption (FHE).
+
+        The interface distinguishes between FHE simulation, real FHE
+        execution, sensitivity experiments, client–server deployment,
+        neural preprocessing, and the illustrative Differential
+        Privacy simulation.
         """
     )
-
-    st.info(
-        """
-        The displayed metrics come from the thesis notebook.
-        The application does not automatically re-run the
-        computationally expensive FHE experiments.
-        """
-    )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # OVERVIEW METRICS
-    # --------------------------------------------------------
-
-    datasets_count = master["dataset"].nunique()
-    models_count = master["model"].nunique()
-    configurations_count = len(master)
 
     a, b, c, d = st.columns(4)
 
     a.metric(
         "Datasets",
-        datasets_count
+        master["dataset"].nunique()
     )
 
     b.metric(
         "Models",
-        models_count
+        master["model"].nunique()
     )
 
     c.metric(
-        "Main FHE Configurations",
-        configurations_count
+        "FHE Configurations",
+        len(master)
+    )
+
+    mean_latency = safe_mean(
+        master["latency_fhe_mean_s"]
     )
 
     d.metric(
-        "FHE Quantization",
-        "5 bits"
+        "Mean FHE Latency",
+        f"{mean_latency:.3f} s"
+        if mean_latency is not None
+        else "N/A"
     )
 
     st.divider()
 
-    # --------------------------------------------------------
-    # RESEARCH OBJECTIVE
-    # --------------------------------------------------------
+    st.subheader("Thesis Scope")
 
-    st.subheader("Research Objective")
-
-    st.write(
+    st.markdown(
         """
-        The demonstrator evaluates privacy-preserving machine learning
-        using Fully Homomorphic Encryption. The experiments compare
-        conventional plaintext inference with FHE inference while
-        measuring predictive performance, latency, memory consumption,
-        simulation-to-real agreement, and computational overhead.
+        **Datasets**
+
+        - WDBC
+        - Spambase
+        - Adult
+        - Pima Diabetes
+        - Heart Disease
+
+        **Models**
+
+        - Decision Tree
+        - Random Forest
+        - XGBoost
+
+        **Main FHE configuration**
+
+        - Concrete-ML 1.9.0
+        - `n_bits = 5`
+        - real FHE evaluation on a subsample
+        - repeated latency measurements
         """
     )
 
-    # --------------------------------------------------------
-    # ARCHITECTURE
-    # --------------------------------------------------------
-
-    st.subheader("FHE Client–Server Architecture")
+    st.subheader("Architecture")
 
     st.code(
         """
 User Data
-    │
-    ▼
-┌─────────────────────┐
-│ Client              │
-│ Quantization        │
-│ Encryption          │
-└─────────┬───────────┘
-          │
-          │ Ciphertext
-          ▼
-┌─────────────────────┐
-│ Server              │
-│ FHE Inference       │
-│ on Encrypted Data   │
-└─────────┬───────────┘
-          │
-          │ Encrypted Result
-          ▼
-┌─────────────────────┐
-│ Client              │
-│ Decryption          │
-│ Dequantization      │
-└─────────┬───────────┘
-          │
-          ▼
-      Prediction
+    ↓
+FHE Client
+    ↓
+Quantization + Encryption
+    ↓
+Network
+    ↓
+FHE Server
+    ↓
+Inference on Ciphertext
+    ↓
+Network
+    ↓
+FHE Client
+    ↓
+Decryption + Dequantization
+    ↓
+Prediction
         """
     )
 
-    st.divider()
-
-    st.subheader("Datasets")
-
-    st.write(
-        ", ".join(sorted(master["dataset"].unique()))
-    )
-
-    st.subheader("Models")
-
-    st.write(
-        ", ".join(sorted(master["model"].unique()))
+    st.info(
+        "The displayed experimental values are loaded from the CSV "
+        "results generated by the thesis notebook. The Streamlit "
+        "application does not automatically re-run the computationally "
+        "expensive FHE experiments."
     )
 
 
 # ============================================================
-# EXPERIMENTAL DASHBOARD
+# DASHBOARD
 # ============================================================
 
-elif page == "📊 Experimental Dashboard":
+elif page == "📊 Dashboard":
 
     st.title("📊 Experimental Dashboard")
+
+    st.write(
+        "Interactive overview of the 15 main FHE configurations."
+    )
 
     # --------------------------------------------------------
     # FILTERS
     # --------------------------------------------------------
 
+    datasets_available = list(
+        master["dataset"].dropna().unique()
+    )
+
+    models_available = list(
+        master["model"].dropna().unique()
+    )
+
     ds = st.multiselect(
         "Datasets",
-        options=sorted(master["dataset"].unique()),
-        default=sorted(master["dataset"].unique())
+        datasets_available,
+        default=datasets_available
     )
 
     models = st.multiselect(
         "Models",
-        options=sorted(master["model"].unique()),
-        default=sorted(master["model"].unique())
+        models_available,
+        default=models_available
     )
 
     df = master[
         master["dataset"].isin(ds)
-        & master["model"].isin(models)
+        &
+        master["model"].isin(models)
     ].copy()
 
     if df.empty:
@@ -308,7 +339,7 @@ elif page == "📊 Experimental Dashboard":
         st.stop()
 
     # --------------------------------------------------------
-    # METRICS
+    # KPIs
     # --------------------------------------------------------
 
     c1, c2, c3, c4 = st.columns(4)
@@ -318,99 +349,106 @@ elif page == "📊 Experimental Dashboard":
         len(df)
     )
 
+    mean_fhe_accuracy = safe_mean(
+        df["acc_fhe_simulate_full"]
+    )
+
     c2.metric(
-        "Mean Plaintext Accuracy",
-        pct(df["acc_plain"].mean())
+        "Average FHE Accuracy",
+        pct(mean_fhe_accuracy)
+        if mean_fhe_accuracy is not None
+        else "N/A"
+    )
+
+    mean_plain_accuracy = safe_mean(
+        df["acc_plain"]
     )
 
     c3.metric(
-        "Mean FHE Simulated Accuracy",
-        pct(df["acc_fhe_simulate_full"].mean())
+        "Average Plaintext Accuracy",
+        pct(mean_plain_accuracy)
+        if mean_plain_accuracy is not None
+        else "N/A"
+    )
+
+    mean_agreement = safe_mean(
+        df["agreement_simulate_vs_real"]
     )
 
     c4.metric(
-        "Mean Simulation / Real Agreement",
-        pct(df["agreement_simulate_vs_real"].mean())
+        "Average Simulation / Real Agreement",
+        pct(mean_agreement)
+        if mean_agreement is not None
+        else "N/A"
     )
 
     st.divider()
 
     # --------------------------------------------------------
-    # RESULTS TABLE
+    # MAIN RESULTS TABLE
     # --------------------------------------------------------
 
-    st.subheader("Main FHE Experimental Results")
+    st.subheader("Main FHE Results")
 
-    show = df[
-        [
-            "dataset",
-            "model",
-            "acc_plain",
-            "acc_fhe_simulate_full",
-            "delta_acc_fhe_minus_plain",
-            "acc_fhe_real_subsample",
-            "agreement_simulate_vs_real",
-            "latency_fhe_mean_s",
-            "latency_ci95_low_s",
-            "latency_ci95_high_s",
-            "memory_peak_rss_mb",
-            "overhead_ratio"
-        ]
-    ].copy()
+    display_columns = [
+        "dataset",
+        "model",
+        "acc_plain",
+        "acc_fhe_simulate_full",
+        "delta_acc_fhe_minus_plain",
+        "acc_fhe_real_subsample",
+        "agreement_simulate_vs_real",
+        "latency_fhe_mean_s",
+        "latency_ci95_low_s",
+        "latency_ci95_high_s",
+        "memory_peak_rss_mb",
+        "overhead_ratio",
+    ]
+
+    show = df[display_columns].copy()
+
+    styled_show = format_dataframe(
+        show,
+        {
+            "acc_plain": "{:.4f}",
+            "acc_fhe_simulate_full": "{:.4f}",
+            "delta_acc_fhe_minus_plain": "{:+.4f}",
+            "acc_fhe_real_subsample": "{:.4f}",
+            "agreement_simulate_vs_real": "{:.2%}",
+            "latency_fhe_mean_s": "{:.4f}",
+            "latency_ci95_low_s": "{:.4f}",
+            "latency_ci95_high_s": "{:.4f}",
+            "memory_peak_rss_mb": "{:.1f}",
+            "overhead_ratio": "{:.0f}x",
+        }
+    )
 
     st.dataframe(
-        show.style.format(
-            {
-                "acc_plain": "{:.4f}",
-                "acc_fhe_simulate_full": "{:.4f}",
-                "delta_acc_fhe_minus_plain": "{:+.4f}",
-                "acc_fhe_real_subsample": "{:.4f}",
-                "agreement_simulate_vs_real": "{:.4f}",
-                "latency_fhe_mean_s": "{:.4f}",
-                "latency_ci95_low_s": "{:.4f}",
-                "latency_ci95_high_s": "{:.4f}",
-                "memory_peak_rss_mb": "{:.1f}",
-                "overhead_ratio": "{:.0f}x"
-            }
-        ),
+        styled_show,
         use_container_width=True,
         hide_index=True
     )
 
-    st.divider()
-
     # --------------------------------------------------------
-    # LATENCY CHART
+    # LATENCY
     # --------------------------------------------------------
 
-    st.subheader("FHE Latency by Dataset and Model")
+    st.subheader(
+        "FHE Latency by Dataset and Model"
+    )
 
-    latency_chart = df.pivot(
+    chart = df.pivot(
         index="dataset",
         columns="model",
         values="latency_fhe_mean_s"
     )
 
-    st.bar_chart(latency_chart)
+    st.bar_chart(chart)
 
     st.caption(
-        "Latency corresponds to the mean FHE execution time "
-        "recorded in the thesis notebook."
+        "Latency corresponds to the recorded mean FHE latency "
+        "for each dataset/model configuration."
     )
-
-    # --------------------------------------------------------
-    # MEMORY
-    # --------------------------------------------------------
-
-    st.subheader("Peak Memory Consumption")
-
-    memory_chart = df.pivot(
-        index="dataset",
-        columns="model",
-        values="memory_peak_rss_mb"
-    )
-
-    st.bar_chart(memory_chart)
 
 
 # ============================================================
@@ -419,7 +457,9 @@ elif page == "📊 Experimental Dashboard":
 
 elif page == "📈 Plaintext vs FHE":
 
-    st.title("📈 Plaintext vs FHE Comparison")
+    st.title(
+        "📈 Plaintext vs FHE Comparison"
+    )
 
     metric = st.selectbox(
         "Metric",
@@ -429,6 +469,10 @@ elif page == "📈 Plaintext vs FHE":
         ]
     )
 
+    # --------------------------------------------------------
+    # ACCURACY
+    # --------------------------------------------------------
+
     if metric == "Accuracy":
 
         tmp = master[
@@ -436,13 +480,27 @@ elif page == "📈 Plaintext vs FHE":
                 "dataset",
                 "model",
                 "acc_plain",
-                "acc_fhe_simulate_full"
+                "acc_fhe_simulate_full",
             ]
         ].melt(
-            ["dataset", "model"],
+            [
+                "dataset",
+                "model"
+            ],
             var_name="mode",
             value_name="value"
         )
+
+        tmp["mode"] = tmp["mode"].replace(
+            {
+                "acc_plain": "Plaintext",
+                "acc_fhe_simulate_full": "FHE Simulation",
+            }
+        )
+
+    # --------------------------------------------------------
+    # F1
+    # --------------------------------------------------------
 
     else:
 
@@ -451,12 +509,22 @@ elif page == "📈 Plaintext vs FHE":
                 "dataset",
                 "model",
                 "f1_plain",
-                "f1_fhe_simulate_full"
+                "f1_fhe_simulate_full",
             ]
         ].melt(
-            ["dataset", "model"],
+            [
+                "dataset",
+                "model"
+            ],
             var_name="mode",
             value_name="value"
+        )
+
+        tmp["mode"] = tmp["mode"].replace(
+            {
+                "f1_plain": "Plaintext",
+                "f1_fhe_simulate_full": "FHE Simulation",
+            }
         )
 
     tmp["configuration"] = (
@@ -473,46 +541,8 @@ elif page == "📈 Plaintext vs FHE":
         )
     )
 
-    st.divider()
-
     # --------------------------------------------------------
-    # REAL FHE VS SIMULATION
-    # --------------------------------------------------------
-
-    st.subheader(
-        "FHE Simulation vs Real Execution"
-    )
-
-    comparison = master[
-        [
-            "dataset",
-            "model",
-            "acc_fhe_simulate_full",
-            "acc_fhe_real_subsample",
-            "f1_fhe_simulate_full",
-            "f1_fhe_real_subsample",
-            "agreement_simulate_vs_real"
-        ]
-    ].copy()
-
-    st.dataframe(
-        comparison.style.format(
-            {
-                "acc_fhe_simulate_full": "{:.4f}",
-                "acc_fhe_real_subsample": "{:.4f}",
-                "f1_fhe_simulate_full": "{:.4f}",
-                "f1_fhe_real_subsample": "{:.4f}",
-                "agreement_simulate_vs_real": "{:.4f}"
-            }
-        ),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # LATENCY
+    # LATENCY + CI
     # --------------------------------------------------------
 
     st.subheader(
@@ -526,29 +556,67 @@ elif page == "📈 Plaintext vs FHE":
             "latency_fhe_mean_s",
             "latency_fhe_std_s",
             "latency_ci95_low_s",
-            "latency_ci95_high_s"
+            "latency_ci95_high_s",
         ]
     ].copy()
 
+    styled_latency = format_dataframe(
+        latency_table,
+        {
+            "latency_fhe_mean_s": "{:.4f}",
+            "latency_fhe_std_s": "{:.4f}",
+            "latency_ci95_low_s": "{:.4f}",
+            "latency_ci95_high_s": "{:.4f}",
+        }
+    )
+
     st.dataframe(
-        latency_table.style.format(
-            {
-                "latency_fhe_mean_s": "{:.4f}",
-                "latency_fhe_std_s": "{:.4f}",
-                "latency_ci95_low_s": "{:.4f}",
-                "latency_ci95_high_s": "{:.4f}"
-            }
-        ),
+        styled_latency,
         use_container_width=True,
         hide_index=True
     )
 
     st.caption(
-        """
-        Simulated FHE accuracy and F1-score are evaluated on the
-        complete test set. Real FHE metrics are evaluated on the
-        stratified subsample recorded in the notebook.
-        """
+        "FHE simulation accuracy/F1-score is evaluated on the complete "
+        "test set. Real FHE accuracy/F1-score is evaluated on the "
+        "recorded real-FHE subsample."
+    )
+
+    # --------------------------------------------------------
+    # REAL FHE RESULTS
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Simulation vs Real FHE"
+    )
+
+    real_table = master[
+        [
+            "dataset",
+            "model",
+            "acc_fhe_simulate_full",
+            "acc_fhe_real_subsample",
+            "f1_fhe_simulate_full",
+            "f1_fhe_real_subsample",
+            "agreement_simulate_vs_real",
+        ]
+    ].copy()
+
+    styled_real = format_dataframe(
+        real_table,
+        {
+            "acc_fhe_simulate_full": "{:.4f}",
+            "acc_fhe_real_subsample": "{:.4f}",
+            "f1_fhe_simulate_full": "{:.4f}",
+            "f1_fhe_real_subsample": "{:.4f}",
+            "agreement_simulate_vs_real": "{:.2%}",
+        }
+    )
+
+    st.dataframe(
+        styled_real,
+        use_container_width=True,
+        hide_index=True
     )
 
 
@@ -558,14 +626,14 @@ elif page == "📈 Plaintext vs FHE":
 
 elif page == "🔬 Sensitivity Analysis":
 
-    st.title("🔬 FHE Sensitivity Analysis")
+    st.title("🔬 Sensitivity Analysis")
 
     section = st.radio(
         "Analysis",
         [
             "Tree Depth",
             "Number of Trees",
-            "Quantization Bits"
+            "Quantization"
         ],
         horizontal=True
     )
@@ -576,48 +644,62 @@ elif page == "🔬 Sensitivity Analysis":
 
     if section == "Tree Depth":
 
-        datasets_depth = st.multiselect(
+        selected_datasets = st.multiselect(
             "Datasets",
-            options=sorted(depth["dataset"].unique()),
-            default=sorted(depth["dataset"].unique()),
+            list(depth["dataset"].dropna().unique()),
+            default=list(
+                depth["dataset"].dropna().unique()
+            ),
             key="depth_datasets"
         )
 
         d = depth[
-            depth["dataset"].isin(datasets_depth)
+            depth["dataset"].isin(selected_datasets)
         ].copy()
 
-        st.subheader("FHE Latency vs Tree Depth")
+        if d.empty:
 
-        latency = d.pivot(
-            index="max_depth",
-            columns="dataset",
-            values="latency_s"
-        )
+            st.warning(
+                "No results available for the selected datasets."
+            )
 
-        st.line_chart(latency)
-
-        if "accuracy" in d.columns:
+        else:
 
             st.subheader(
-                "Simulated FHE Accuracy vs Tree Depth"
+                "FHE Latency vs Tree Depth"
             )
 
-            accuracy = d.pivot(
-                index="max_depth",
-                columns="dataset",
-                values="accuracy"
+            st.line_chart(
+                d.pivot(
+                    index="max_depth",
+                    columns="dataset",
+                    values="latency_s"
+                )
             )
 
-            st.line_chart(accuracy)
+            if "accuracy" in d.columns:
 
-        st.subheader("Results")
+                st.subheader(
+                    "Simulated FHE Accuracy"
+                )
 
-        st.dataframe(
-            d,
-            use_container_width=True,
-            hide_index=True
-        )
+                st.line_chart(
+                    d.pivot(
+                        index="max_depth",
+                        columns="dataset",
+                        values="accuracy"
+                    )
+                )
+
+            st.subheader(
+                "Tree Depth Results"
+            )
+
+            st.dataframe(
+                d,
+                use_container_width=True,
+                hide_index=True
+            )
 
     # --------------------------------------------------------
     # NUMBER OF TREES
@@ -629,27 +711,31 @@ elif page == "🔬 Sensitivity Analysis":
             "FHE Latency vs Number of Trees"
         )
 
-        latency = trees.pivot(
-            index="n_estimators",
-            columns="dataset",
-            values="latency_s"
+        st.line_chart(
+            trees.pivot(
+                index="n_estimators",
+                columns="dataset",
+                values="latency_s"
+            )
         )
-
-        st.line_chart(latency)
 
         if "accuracy" in trees.columns:
 
             st.subheader(
-                "Simulated FHE Accuracy vs Number of Trees"
+                "Simulated FHE Accuracy"
             )
 
-            accuracy = trees.pivot(
-                index="n_estimators",
-                columns="dataset",
-                values="accuracy"
+            st.line_chart(
+                trees.pivot(
+                    index="n_estimators",
+                    columns="dataset",
+                    values="accuracy"
+                )
             )
 
-            st.line_chart(accuracy)
+        st.subheader(
+            "Number of Trees Results"
+        )
 
         st.dataframe(
             trees,
@@ -667,27 +753,31 @@ elif page == "🔬 Sensitivity Analysis":
             "FHE Latency vs Quantization Bits"
         )
 
-        latency = bits.pivot(
-            index="n_bits",
-            columns="dataset",
-            values="latency_s"
+        st.line_chart(
+            bits.pivot(
+                index="n_bits",
+                columns="dataset",
+                values="latency_s"
+            )
         )
-
-        st.line_chart(latency)
 
         if "accuracy" in bits.columns:
 
             st.subheader(
-                "Simulated FHE Accuracy vs Quantization Bits"
+                "Simulated FHE Accuracy"
             )
 
-            accuracy = bits.pivot(
-                index="n_bits",
-                columns="dataset",
-                values="accuracy"
+            st.line_chart(
+                bits.pivot(
+                    index="n_bits",
+                    columns="dataset",
+                    values="accuracy"
+                )
             )
 
-            st.line_chart(accuracy)
+        st.subheader(
+            "Quantization Results"
+        )
 
         st.dataframe(
             bits,
@@ -700,31 +790,25 @@ elif page == "🔬 Sensitivity Analysis":
 # CLIENT–SERVER
 # ============================================================
 
-elif page == "🖥️ Client–Server Deployment":
+elif page == "🖥️ Client–Server":
 
-    st.title("🖥️ Client–Server FHE Deployment")
+    st.title(
+        "🖥️ FHE Client–Server Deployment"
+    )
 
     st.write(
         """
-        This experiment demonstrates a two-process FHE deployment
-        using a client and a server. The client encrypts the input,
-        the server performs FHE inference on encrypted data, and
-        the client decrypts the response.
+        Separate client–server FHE deployment demonstration based on
+        the WDBC dataset and a Decision Tree configuration.
         """
     )
 
-    st.info(
+    st.write(
         """
-        Configuration: WDBC + Decision Tree,
-        max_depth=5, n_bits=6.
-        This is a separate deployment experiment from the
-        main 15-configuration FHE evaluation.
+        **Configuration:** WDBC + Decision Tree,
+        `max_depth=5`, `n_bits=6`.
         """
     )
-
-    # --------------------------------------------------------
-    # FIXED EXPERIMENT VALUES
-    # --------------------------------------------------------
 
     a, b, c, d = st.columns(4)
 
@@ -734,7 +818,7 @@ elif page == "🖥️ Client–Server Deployment":
     )
 
     b.metric(
-        "Server FHE",
+        "FHE Server",
         "3.847 s"
     )
 
@@ -748,38 +832,30 @@ elif page == "🖥️ Client–Server Deployment":
         "7.514 s"
     )
 
-    st.divider()
-
-    st.subheader("Client–Server Flow")
+    st.subheader(
+        "Execution Flow"
+    )
 
     st.code(
         """
 CLIENT
-  │
-  ├── Quantize
-  ├── Encrypt
-  └── Serialize
-        │
-        │  Encrypted request
-        ▼
+  quantize_encrypt_serialize()
+       │
+       │ request = 984 bytes
+       ▼
 SERVER
-  │
-  └── FHE inference
-        │
-        │  Encrypted response
-        ▼
+  server.run(ciphertext, evaluation_keys)
+       │
+       │ response = 33056 bytes
+       ▼
 CLIENT
-  │
-  ├── Deserialize
-  ├── Decrypt
-  └── Dequantize
-        │
-        ▼
-Prediction
+  deserialize_decrypt_dequantize()
         """
     )
 
-    st.subheader("Recorded Deployment Results")
+    st.subheader(
+        "Client–Server Recorded Results"
+    )
 
     st.dataframe(
         deploy,
@@ -788,12 +864,9 @@ Prediction
     )
 
     st.warning(
-        """
-        The network and end-to-end measurements shown above come
-        from the two-process client–server demonstrator. The
-        'Total no network' value represents encryption time plus
-        server FHE inference time plus decryption time.
-        """
+        "The network and end-to-end times shown above come from the "
+        "two-process client–server demonstrator. The 'Total no network' "
+        "calculation adds encryption, server inference, and decryption."
     )
 
 
@@ -803,28 +876,26 @@ Prediction
 
 elif page == "🧠 Neural Preprocessing":
 
-    st.title("🧠 Neural Preprocessing + FHE")
+    st.title(
+        "🧠 Neural Preprocessing + Tree"
+    )
 
     st.write(
         """
-        This section presents the neural preprocessing experiment
-        recorded in the thesis notebook. The autoencoder uses a
-        compressed latent representation before the downstream
-        tree-based evaluation.
+        Neural preprocessing experiment using an autoencoder-based
+        compressed representation before downstream evaluation.
         """
     )
 
-    st.subheader("Neural Preprocessing Results")
+    st.subheader(
+        "Neural Preprocessing Results"
+    )
 
     st.dataframe(
         neural,
         use_container_width=True,
         hide_index=True
     )
-
-    # --------------------------------------------------------
-    # RAW VS BOTTLENECK
-    # --------------------------------------------------------
 
     if {
         "dataset",
@@ -833,25 +904,21 @@ elif page == "🧠 Neural Preprocessing":
     }.issubset(neural.columns):
 
         st.subheader(
-            "Raw Input vs Bottleneck Latency"
+            "Raw vs Bottleneck Latency"
         )
 
-        neural_chart = neural.set_index(
-            "dataset"
-        )[
-            [
-                "latency_raw_s",
-                "latency_bottleneck_s"
+        st.bar_chart(
+            neural.set_index("dataset")[
+                [
+                    "latency_raw_s",
+                    "latency_bottleneck_s"
+                ]
             ]
-        ]
+        )
 
-        st.bar_chart(neural_chart)
-
-    # --------------------------------------------------------
-    # MLP FHE
-    # --------------------------------------------------------
-
-    st.subheader("FHE-MLP Results")
+    st.subheader(
+        "FHE-MLP Baseline"
+    )
 
     st.dataframe(
         mlp,
@@ -860,11 +927,8 @@ elif page == "🧠 Neural Preprocessing":
     )
 
     st.info(
-        """
-        The MLP-FHE results shown here are the results recorded
-        in the corrected thesis notebook. They are presented
-        separately from the main tree-based FHE experiments.
-        """
+        "The MLP results are displayed separately from the main "
+        "tree-based FHE experiments."
     )
 
 
@@ -872,7 +936,7 @@ elif page == "🧠 Neural Preprocessing":
 # FHE + DIFFERENTIAL PRIVACY
 # ============================================================
 
-elif page == "🔒 FHE + Differential Privacy":
+elif page == "🔒 FHE + DP":
 
     st.title(
         "🔒 FHE + Differential Privacy"
@@ -880,20 +944,10 @@ elif page == "🔒 FHE + Differential Privacy":
 
     st.write(
         """
-        This section presents the illustrative Monte Carlo
-        Differential Privacy simulation recorded in the notebook.
+        Illustrative Monte Carlo simulation of an output perturbation
+        mechanism.
         """
     )
-
-    st.info(
-        """
-        This experiment is presented as an illustrative simulation,
-        not as a formal proof of an (ε, δ)-Differential Privacy
-        guarantee for the FHE model.
-        """
-    )
-
-    st.subheader("Simulation Results")
 
     st.dataframe(
         dp,
@@ -903,13 +957,13 @@ elif page == "🔒 FHE + Differential Privacy":
 
     if "dataset" in dp.columns:
 
-        sel = st.selectbox(
+        selected_dataset = st.selectbox(
             "Dataset",
-            sorted(dp["dataset"].unique())
+            list(dp["dataset"].dropna().unique())
         )
 
         d = dp[
-            dp["dataset"] == sel
+            dp["dataset"] == selected_dataset
         ].copy()
 
         if {
@@ -919,24 +973,22 @@ elif page == "🔒 FHE + Differential Privacy":
         }.issubset(d.columns):
 
             st.subheader(
-                "Accuracy under DP Noise"
+                "Differential Privacy Simulation"
             )
 
-            chart = d.pivot(
-                index="epsilon",
-                columns="model",
-                values="acc_dp_mean"
+            st.line_chart(
+                d.pivot(
+                    index="epsilon",
+                    columns="model",
+                    values="acc_dp_mean"
+                )
             )
-
-            st.line_chart(chart)
 
     st.warning(
         """
-        The notebook treats this as an illustrative Monte Carlo
-        simulation. It should not be interpreted as a formal
-        (ε, δ)-DP proof. The sensitivity assumption and output
-        perturbation mechanism are simplified experimental
-        assumptions.
+        This section is presented as an illustrative simulation.
+        It is not a formal proof of an (ε,δ)-Differential Privacy
+        guarantee for the FHE model.
         """
     )
 
@@ -947,87 +999,115 @@ elif page == "🔒 FHE + Differential Privacy":
 
 else:
 
-    st.title("📚 Methodology")
+    st.title(
+        "📚 Methodology"
+    )
 
     st.markdown(
         """
 ### Datasets
 
-WDBC, Spambase, Adult, Pima Diabetes, and Heart Disease.
+The main experimental study covers:
 
-### Data Split
+- WDBC
+- Spambase
+- Adult
+- Pima Diabetes
+- Heart Disease
 
-80/20 train-test split, `random_state=42`, with stratification.
+### Models
 
-### Plaintext Baseline
+The main tree-based models are:
 
-- Decision Tree: `max_depth=5`
-- Random Forest: `n_estimators=50`, `max_depth=5`
-- XGBoost: `n_estimators=50`, `max_depth=5`
+- Decision Tree
+- Random Forest
+- XGBoost
 
 ### Main FHE Experiments
 
-- Concrete-ML 1.9.0
-- Decision Tree: `max_depth=4`
-- Random Forest: `n_estimators=15`, `max_depth=4`
-- XGBoost: `n_estimators=15`, `max_depth=4`
-- Quantization: `n_bits=5`
-- Calibration: 50 training observations
-- Real FHE evaluation: 30 stratified observations
-- FHE latency: 3 repetitions
-- Simulated FHE accuracy/F1: complete test set
-- Real FHE accuracy/F1: recorded subsample
-- Simulation/real prediction agreement
-- 95% confidence interval for FHE latency
-- Peak RSS memory
+The main FHE experimental results are loaded from
+`df_fhe.csv` and `master_results_latest.csv`.
+
+The reported variables include:
+
+- plaintext accuracy;
+- plaintext F1-score;
+- simulated FHE accuracy;
+- simulated FHE F1-score;
+- real FHE accuracy;
+- real FHE F1-score;
+- simulation/real agreement;
+- mean FHE latency;
+- FHE latency standard deviation;
+- 95% latency confidence interval;
+- peak RSS memory;
+- accuracy difference;
+- computational overhead.
+
+### Main FHE Configuration
+
+The main experiment uses:
+
+- Concrete-ML 1.9.0;
+- `n_bits = 5`;
+- Decision Tree: `max_depth = 4`;
+- Random Forest: `n_estimators = 15`, `max_depth = 4`;
+- XGBoost: `n_estimators = 15`, `max_depth = 4`;
+- 50 calibration samples;
+- 30 real FHE evaluation samples;
+- 3 latency repetitions.
 
 ### Sensitivity Analysis
 
-- Tree depth: 3, 5, 7, 10
-- Number of trees: 10, 50, 100
-- Quantization bits: 2, 4, 6, 8
+The application presents sensitivity experiments for:
 
-### Client–Server Deployment
+- tree depth;
+- number of trees;
+- quantization bits.
 
-WDBC + Decision Tree, `max_depth=5`, `n_bits=6`.
+### Client–Server Demonstration
 
-### Neural Preprocessing
+The separate client–server demonstration uses:
 
-Autoencoder-based preprocessing with a compressed latent representation,
-followed by evaluation of the FHE-compatible MLP configuration recorded
-in the thesis notebook.
-
-### FHE + Differential Privacy
-
-Illustrative Monte Carlo output-perturbation simulation.
-
-This section is presented as an experimental simulation and not as a
-formal proof of an `(ε, δ)`-Differential Privacy guarantee.
+- WDBC;
+- Decision Tree;
+- `max_depth = 5`;
+- `n_bits = 6`.
 
 ### Data Provenance
 
-All displayed experimental results are loaded from the CSV files
-generated from the thesis notebook.
+The Streamlit interface reads the experimental results from
+the `data/` directory.
 
-The application does not re-run the computationally expensive FHE
-experiments automatically.
-        """
+The original thesis notebook is the source of the experimental
+results.
+
+The application is intended for interactive presentation and
+visualization rather than re-running the complete FHE benchmark.
+"""
     )
 
-    st.subheader("Available Result Files")
-
-    files = sorted(
-        [
-            p.name
-            for p in DATA.iterdir()
-            if p.is_file()
-        ]
+    st.subheader(
+        "Loaded Result Files"
     )
 
-    st.write(files)
+    files = [
+        "master_results_latest.csv",
+        "df_fhe.csv",
+        "depth_results.csv",
+        "ntrees_results.csv",
+        "bits_results.csv",
+        "dp_simulation_results.csv",
+        "neural_preprocessing_results.csv",
+        "mlp_fhe_results.csv",
+        "client_server_results.csv",
+    ]
 
-    st.divider()
+    for filename in files:
 
-    st.caption(
-        "FHE Thesis Demonstrator • Experimental results from the thesis notebook"
-    )
+        path = DATA / filename
+
+        if path.exists():
+            st.write(f"✅ `{filename}`")
+        else:
+            st.write(f"❌ `{filename}`")
