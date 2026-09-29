@@ -1,3 +1,0 @@
-dataset,input_dim_raw,bottleneck_dim,raw_tree_depth,raw_tree_nodes,bottleneck_tree_depth,bottleneck_tree_nodes,acc_raw,acc_bottleneck,latency_raw_s,latency_bottleneck_s,latency_reduction_pct,ae_train_mse,ae_val_mse
-WDBC,30,8,5,29,5,43,0.9298,0.9298,1.6381,2.3821,-45.4,0.753,0.665
-Pima,8,8,5,39,5,49,0.6948,0.7013,2.453,2.6817,-9.3,0.9161,0.8764
