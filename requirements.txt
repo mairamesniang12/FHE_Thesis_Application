@@ -1,7 +1,3 @@
-streamlit
-concrete-ml
-flask
-requests
-scikit-learn
-numpy
-xgboost
+streamlit==1.64.0
+pandas==2.2.2
+numpy==1.26.4
